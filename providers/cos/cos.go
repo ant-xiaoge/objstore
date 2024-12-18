@@ -138,9 +138,7 @@ func (conf *Config) validate() error {
 	}
 	if conf.Bucket == "" ||
 		conf.AppId == "" ||
-		conf.Region == "" ||
-		conf.SecretId == "" ||
-		conf.SecretKey == "" {
+		conf.Region == "" {
 		return errors.New("insufficient cos configuration information")
 	}
 	return nil
