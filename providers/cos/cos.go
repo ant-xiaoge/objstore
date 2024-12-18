@@ -5,6 +5,7 @@ package cos
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -108,6 +109,65 @@ func NewBucket(logger log.Logger, conf []byte, component string, wrapRoundtrippe
 	return NewBucketWithConfig(logger, config, component, wrapRoundtripper)
 }
 
+// 定义一个结构体来匹配预期的JSON响应
+type Secret struct {
+	TmpSecretId  string `json:"TmpSecretId"`
+	TmpSecretKey string `json:"TmpSecretKey"`
+	Token        string `json:"Token"`
+	Expiration   string `json:"Expiration"`
+}
+
+func GetCVMSecret() (Secret, error) {
+	url := "http://metadata.tencentyun.com/latest/meta-data/cam/security-credentials/"
+
+	var secret Secret
+	// 第一次请求
+	body, err := SendGetRequest(url)
+	if err != nil {
+		fmt.Println("请求失败:", err)
+		return secret, err
+	}
+
+	// 构造第二次请求的URL
+	url2 := fmt.Sprintf("%s%s", url, body)
+
+	// 第二次请求
+	body, err = SendGetRequest(url2)
+	if err != nil {
+		fmt.Println("请求失败:", err)
+		return secret, err
+	}
+
+	if err := json.Unmarshal(body, &secret); err != nil {
+		fmt.Println("解析JSON失败:", err)
+		return secret, err
+	}
+
+	return secret, nil
+}
+
+// sendGetRequest 发送GET请求并返回响应体
+func SendGetRequest(url string) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+
+	return body, nil
+}
+
 // NewBucketWithConfig returns a new Bucket using the provided cos config values.
 func NewBucketWithConfig(logger log.Logger, config Config, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (*Bucket, error) {
 	if err := config.validate(); err != nil {
@@ -139,13 +199,35 @@ func NewBucketWithConfig(logger log.Logger, config Config, component string, wra
 	if wrapRoundtripper != nil {
 		rt = wrapRoundtripper(rt)
 	}
-	client := cos.NewClient(b, &http.Client{
-		Transport: &cos.AuthorizationTransport{
-			SecretID:  config.SecretId,
-			SecretKey: config.SecretKey,
-			Transport: rt,
-		},
-	})
+	// 如果没有传递SecretId 或者SecretKey, 则直接取CVM 临时密钥
+	var token string
+	var client *cos.Client
+	if config.SecretId == "" || config.SecretKey == "" {
+		secret, err := GetCVMSecret()
+		if err != nil {
+			return nil, errors.Wrap(err, "get cvm secret")
+		}
+		config.SecretId = secret.TmpSecretId
+		config.SecretKey = secret.TmpSecretKey
+		token = secret.Token
+		client = cos.NewClient(b, &http.Client{
+			Transport: &cos.AuthorizationTransport{
+				SecretID:     config.SecretId,
+				SecretKey:    config.SecretKey,
+				SessionToken: token,
+				Transport:    rt,
+			},
+		})
+	} else {
+		client = cos.NewClient(b, &http.Client{
+			Transport: &cos.AuthorizationTransport{
+				SecretID:     config.SecretId,
+				SecretKey:    config.SecretKey,
+				SessionToken: "",
+				Transport:    rt,
+			},
+		})
+	}
 
 	if config.MaxRetries > 0 {
 		client.Conf.RetryOpt.Count = config.MaxRetries
