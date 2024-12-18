@@ -139,7 +139,7 @@ func (conf *Config) validate() error {
 	if conf.Bucket == "" ||
 		conf.AppId == "" ||
 		conf.Region == "" {
-		return errors.New("insufficient cos configuration information\n")
+		return errors.New("insufficient cos configuration information -01")
 	}
 	return nil
 }
@@ -640,7 +640,7 @@ func validateForTest(conf Config) error {
 	}
 	if conf.AppId == "" ||
 		conf.Region == "" {
-		return errors.New("insufficient cos configuration information")
+		return errors.New("insufficient cos configuration information -02")
 	}
 	return nil
 }
