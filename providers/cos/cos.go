@@ -139,7 +139,7 @@ func (conf *Config) validate() error {
 	if conf.Bucket == "" ||
 		conf.AppId == "" ||
 		conf.Region == "" {
-		return errors.New("insufficient cos configuration information")
+		return errors.New("insufficient cos configuration information\n")
 	}
 	return nil
 }
@@ -632,16 +632,14 @@ func validateForTest(conf Config) error {
 		if _, err := url.Parse(conf.Endpoint); err != nil {
 			return errors.Wrap(err, "parse endpoint")
 		}
-		if conf.SecretId == "" ||
-			conf.SecretKey == "" {
-			return errors.New("secret_id or secret_key is empty")
-		}
+		// if conf.SecretId == "" ||
+		// 	conf.SecretKey == "" {
+		// 	return errors.New("secret_id or secret_key is empty")
+		// }
 		return nil
 	}
 	if conf.AppId == "" ||
-		conf.Region == "" ||
-		conf.SecretId == "" ||
-		conf.SecretKey == "" {
+		conf.Region == "" {
 		return errors.New("insufficient cos configuration information")
 	}
 	return nil
