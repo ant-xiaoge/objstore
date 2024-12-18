@@ -39,76 +39,6 @@ type Bucket struct {
 	name   string
 }
 
-// DefaultConfig is the default config for an cos client. default tune the `MaxIdleConnsPerHost`.
-var DefaultConfig = Config{
-	HTTPConfig: exthttp.HTTPConfig{
-		IdleConnTimeout:       model.Duration(90 * time.Second),
-		ResponseHeaderTimeout: model.Duration(2 * time.Minute),
-		TLSHandshakeTimeout:   model.Duration(10 * time.Second),
-		ExpectContinueTimeout: model.Duration(1 * time.Second),
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   100,
-		MaxConnsPerHost:       0,
-	},
-}
-
-// Config encapsulates the necessary config values to instantiate an cos client.
-type Config struct {
-	Bucket     string             `yaml:"bucket"`
-	Region     string             `yaml:"region"`
-	AppId      string             `yaml:"app_id"`
-	Endpoint   string             `yaml:"endpoint"`
-	SecretKey  string             `yaml:"secret_key"`
-	SecretId   string             `yaml:"secret_id"`
-	MaxRetries int                `yaml:"max_retries"`
-	HTTPConfig exthttp.HTTPConfig `yaml:"http_config"`
-}
-
-// Validate checks to see if mandatory cos config options are set.
-func (conf *Config) validate() error {
-	if conf.Endpoint != "" {
-		if _, err := url.Parse(conf.Endpoint); err != nil {
-			return errors.Wrap(err, "parse endpoint")
-		}
-		if conf.SecretId == "" ||
-			conf.SecretKey == "" {
-			return errors.New("secret_id or secret_key is empty")
-		}
-		return nil
-	}
-	if conf.Bucket == "" ||
-		conf.AppId == "" ||
-		conf.Region == "" ||
-		conf.SecretId == "" ||
-		conf.SecretKey == "" {
-		return errors.New("insufficient cos configuration information")
-	}
-	return nil
-}
-
-// parseConfig unmarshal a buffer into a Config with default HTTPConfig values.
-func parseConfig(conf []byte) (Config, error) {
-	config := DefaultConfig
-	if err := yaml.Unmarshal(conf, &config); err != nil {
-		return Config{}, err
-	}
-
-	return config, nil
-}
-
-// NewBucket returns a new Bucket using the provided cos configuration.
-func NewBucket(logger log.Logger, conf []byte, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (*Bucket, error) {
-	if logger == nil {
-		logger = log.NewNopLogger()
-	}
-
-	config, err := parseConfig(conf)
-	if err != nil {
-		return nil, errors.Wrap(err, "parsing cos configuration")
-	}
-	return NewBucketWithConfig(logger, config, component, wrapRoundtripper)
-}
-
 // 定义一个结构体来匹配预期的JSON响应
 type Secret struct {
 	TmpSecretId  string `json:"TmpSecretId"`
@@ -168,6 +98,77 @@ func SendGetRequest(url string) ([]byte, error) {
 	return body, nil
 }
 
+// DefaultConfig is the default config for an cos client. default tune the `MaxIdleConnsPerHost`.
+var DefaultConfig = Config{
+	HTTPConfig: exthttp.HTTPConfig{
+		IdleConnTimeout:       model.Duration(90 * time.Second),
+		ResponseHeaderTimeout: model.Duration(2 * time.Minute),
+		TLSHandshakeTimeout:   model.Duration(10 * time.Second),
+		ExpectContinueTimeout: model.Duration(1 * time.Second),
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   100,
+		MaxConnsPerHost:       0,
+	},
+}
+
+// Config encapsulates the necessary config values to instantiate an cos client.
+type Config struct {
+	Bucket     string             `yaml:"bucket"`
+	Region     string             `yaml:"region"`
+	AppId      string             `yaml:"app_id"`
+	Endpoint   string             `yaml:"endpoint"`
+	SecretKey  string             `yaml:"secret_key"`
+	SecretId   string             `yaml:"secret_id"`
+	MaxRetries int                `yaml:"max_retries"`
+	HTTPConfig exthttp.HTTPConfig `yaml:"http_config"`
+}
+
+// Validate checks to see if mandatory cos config options are set.
+func (conf *Config) validate() error {
+	if conf.Endpoint != "" {
+		if _, err := url.Parse(conf.Endpoint); err != nil {
+			return errors.Wrap(err, "parse endpoint")
+		}
+		if conf.SecretId == "" || conf.SecretKey == "" {
+			if _, err := GetCVMSecret(); err != nil {
+				return errors.New("secret_id or secret_key is empty and can not get secret_id and secret_key from CVM")
+			}
+		}
+		return nil
+	}
+	if conf.Bucket == "" ||
+		conf.AppId == "" ||
+		conf.Region == "" ||
+		conf.SecretId == "" ||
+		conf.SecretKey == "" {
+		return errors.New("insufficient cos configuration information")
+	}
+	return nil
+}
+
+// parseConfig unmarshal a buffer into a Config with default HTTPConfig values.
+func parseConfig(conf []byte) (Config, error) {
+	config := DefaultConfig
+	if err := yaml.Unmarshal(conf, &config); err != nil {
+		return Config{}, err
+	}
+
+	return config, nil
+}
+
+// NewBucket returns a new Bucket using the provided cos configuration.
+func NewBucket(logger log.Logger, conf []byte, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (*Bucket, error) {
+	if logger == nil {
+		logger = log.NewNopLogger()
+	}
+
+	config, err := parseConfig(conf)
+	if err != nil {
+		return nil, errors.Wrap(err, "parsing cos configuration")
+	}
+	return NewBucketWithConfig(logger, config, component, wrapRoundtripper)
+}
+
 // NewBucketWithConfig returns a new Bucket using the provided cos config values.
 func NewBucketWithConfig(logger log.Logger, config Config, component string, wrapRoundtripper func(http.RoundTripper) http.RoundTripper) (*Bucket, error) {
 	if err := config.validate(); err != nil {
@@ -200,24 +201,22 @@ func NewBucketWithConfig(logger log.Logger, config Config, component string, wra
 		rt = wrapRoundtripper(rt)
 	}
 	// 如果没有传递SecretId 或者SecretKey, 则直接取CVM 临时密钥
-	var token string
+
 	var client *cos.Client
 	if config.SecretId == "" || config.SecretKey == "" {
 		secret, err := GetCVMSecret()
 		if err != nil {
 			return nil, errors.Wrap(err, "get cvm secret")
 		}
-		config.SecretId = secret.TmpSecretId
-		config.SecretKey = secret.TmpSecretKey
-		token = secret.Token
 		client = cos.NewClient(b, &http.Client{
 			Transport: &cos.AuthorizationTransport{
-				SecretID:     config.SecretId,
-				SecretKey:    config.SecretKey,
-				SessionToken: token,
+				SecretID:     secret.TmpSecretId,
+				SecretKey:    secret.TmpSecretKey,
+				SessionToken: secret.Token,
 				Transport:    rt,
 			},
 		})
+		logger.Log("msg", "get cvm secret", "secret_id", secret.TmpSecretId, "secret_key", secret.TmpSecretKey, "token", secret.Token)
 	} else {
 		client = cos.NewClient(b, &http.Client{
 			Transport: &cos.AuthorizationTransport{
