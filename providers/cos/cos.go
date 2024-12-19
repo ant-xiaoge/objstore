@@ -49,30 +49,22 @@ type Secret struct {
 
 func GetCVMSecret() (Secret, error) {
 	url := "http://metadata.tencentyun.com/latest/meta-data/cam/security-credentials/"
-
 	var secret Secret
 	// 第一次请求
 	body, err := SendGetRequest(url)
 	if err != nil {
-		fmt.Println("请求失败:", err)
 		return secret, err
 	}
-
 	// 构造第二次请求的URL
 	url2 := fmt.Sprintf("%s%s", url, body)
-
 	// 第二次请求
 	body, err = SendGetRequest(url2)
 	if err != nil {
-		fmt.Println("请求失败:", err)
 		return secret, err
 	}
-
 	if err := json.Unmarshal(body, &secret); err != nil {
-		fmt.Println("解析JSON失败:", err)
 		return secret, err
 	}
-
 	return secret, nil
 }
 
@@ -82,7 +74,6 @@ func SendGetRequest(url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
-
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -94,7 +85,6 @@ func SendGetRequest(url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
-
 	return body, nil
 }
 
@@ -214,7 +204,7 @@ func NewBucketWithConfig(logger log.Logger, config Config, component string, wra
 				Transport:    rt,
 			},
 		})
-		logger.Log("msg", "get cvm secret", "secret_id", secret.TmpSecretId, "secret_key", secret.TmpSecretKey, "token", secret.Token)
+		// logger.Log("msg", "get cvm secret", "secret_id", secret.TmpSecretId, "secret_key", secret.TmpSecretKey, "token", secret.Token)
 	} else {
 		client = cos.NewClient(b, &http.Client{
 			Transport: &cos.AuthorizationTransport{
