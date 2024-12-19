@@ -1,4 +1,4 @@
-module github.com/thanos-io/objstore
+module github.com/ant-xiaoge/objstore
 
 go 1.22
 
